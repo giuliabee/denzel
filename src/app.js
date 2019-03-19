@@ -1,3 +1,5 @@
+"use strict";
+
 const express = require("express");
 const bodyParser = require("body-parser");
 const mongoClient = require("mongodb").MongoClient;
@@ -43,15 +45,44 @@ async function randomMovie(callback) {
 }
 
 // Fetch a specific movie
-async function specificMovie(callback) {
+async function specificMovie(callback, id) {
+    console.log(`📽️  fetching movie ${id}...`);
+    database.collection("movies")
+        .aggregate([
+            {$match: {"id": id}}
+        ])
+        .toArray(callback);
 }
 
 // Search for Denzel's movies
-async function searchMovie(callback) {
+async function searchMovies(callback, metascore = 0, limit = 5) {
+    console.log(`📽️  fetching Denzel"s movies...`);
+    try {
+        limit = parseInt(limit);
+    } catch (e) {
+        limit = 5;
+    }
+    try {
+        metascore = parseInt(metascore);
+    } catch (e) {
+        metascore = 0;
+    }
+    database.collection("movies")
+        .aggregate([
+            {$match: {"metascore": {"$gt": metascore}}},
+            {$limit: limit}
+        ])
+        .toArray(callback);
 }
 
 // Save a watched date and a review
-async function reviewMovie(callback) {
+async function reviewMovie(callback, id, date, review) {
+    console.log(`📽️  saving review for ${id}...`);
+    database.collection("movies").findOneAndUpdate(
+        {"id": id},
+        {$push: {"reviews": {"date": date, "review": review}}},
+        callback
+    );
 }
 
 
@@ -59,10 +90,10 @@ async function reviewMovie(callback) {
 // Populate the database
 app.get("/movies/populate", (request, response) => {
     populateMovies((error, result) => {
+        if (error) {
+            throw error;
+        }
         try {
-            if (error) {
-                throw error;
-            }
             response.send(result.result);
         } catch
             (e) {
@@ -75,11 +106,12 @@ app.get("/movies/populate", (request, response) => {
 // Fetch a random must-watch movie
 app.get("/movies", (request, response) => {
     randomMovie((error, result) => {
+        if (error) {
+            throw error;
+        }
         try {
-            if (error) {
-                throw error;
-            }
-            response.send(awesome);
+
+            response.send(result);
         } catch (e) {
             console.error(e);
             process.exit(1);
@@ -89,78 +121,55 @@ app.get("/movies", (request, response) => {
 
 // Fetch a specific movie
 app.get("/movies/:id(tt\\d+)", (request, response) => {
-    try {
-        console.log(`📽️  fetching movie ${request.params.id}...`);
-        database.collection("movies")
-            .aggregate([
-                {$match: {"id": request.params.id}}
-            ])
-            .toArray(function (error, movie) {
-                if (error) {
-                    throw error;
-                }
-                response.send(movie);
-            });
-    } catch (e) {
-        console.error(e);
-        process.exit(1);
-    }
+    specificMovie((error, result) => {
+        if (error) {
+            throw error;
+        }
+        try {
+            response.send(result);
+        } catch (e) {
+            console.error(e);
+            process.exit(1);
+        }
+    }, request.params.id);
 });
 
 // Search for Denzel"s movies
 app.get("/movies/search", (request, response) => {
-    try {
-        console.log(`📽️  fetching Denzel"s movies...`);
-        let metascore = request.query.metascore || 0;
-        let limit = request.query.limit || 5;
-        try {
-            limit = parseInt(limit)
-        } catch (e) {
-            limit = 5;
+    searchMovies((error, result) => {
+        if (error) {
+            throw error;
         }
         try {
-            metascore = parseInt(metascore)
+            response.send(result);
         } catch (e) {
-            metascore = 0;
+            console.error(e);
+            process.exit(1);
         }
-        database.collection("movies")
-            .aggregate([
-                {$match: {"metascore": {"$gt": metascore}}},
-                {$limit: limit}
-            ])
-            .toArray(function (error, movies) {
-                if (error) {
-                    throw error;
-                }
-                response.send(movies);
-            });
-    } catch (e) {
-        console.error(e);
-        process.exit(1);
-    }
+    }, request.query.metascore, request.query.limit);
 });
+
 
 // Save a watched date and a review
 app.post("/movies/:id", (request, response) => {
-    try {
-        console.log(`📽️  saving review...`);
-        console.log(request.body);
-        database.collection("movies").findOneAndUpdate(
-            {"id": request.params.id},
-            {$push: {"reviews": {"date": request.body.date, "review": request.body.review}}}
-        );
-        response.send({"ok": true});
-        console.log(`review saved`);
-    } catch (e) {
-        console.error(e);
-        process.exit(1);
-    }
+    console.log(request.params.id, request.body.date, request.body.review);
+    reviewMovie((error, result) => {
+        if (error) {
+            throw error;
+        }
+        try {
+            response.send({"ok": true});
+        } catch (e) {
+            console.error(e);
+            process.exit(1);
+        }
+    }, request.params.id, request.body.date, request.body.review);
 });
 
 
 //GraphQL
 // Define Movie Type
-movieType = new GraphQLObjectType({
+const movieType = new GraphQLObjectType({
     name: 'Movie',
     fields: {
         link: {type: GraphQLString},
@@ -177,16 +186,24 @@ const queryType = new GraphQLObjectType({
     fields: {
         // Populate the database
         populate: {
-            resolve: function (source, args, context) {
-                populateMovies(source, context);
+            resolve: (source, args, context) => {
+                return new Promise((resolve, reject) => {
+                    populateMovies((error, result) => {
+                        error ? reject(error) : resolve(result);
+                    });
+                });
             }
         },
 
         // Fetch a random must-watch movie
         random: {
             type: movieType,
-            resolve: function (source, args) {
-                return "Hello World";
+            resolve: (source, args, context) => {
+                return new Promise((resolve, reject) => {
+                    randomMovie((error, result) => {
+                        error ? reject(error) : resolve(result);
+                    });
+                });
             }
         },
 
@@ -194,10 +211,14 @@ const queryType = new GraphQLObjectType({
         specific: {
             type: movieType,
             args: {
-                id: {type: GraphQLInt}
+                id: {type: GraphQLString}
             },
-            resolve: function (request, args, context) {
-                return "Hello World";
+            resolve: (source, args, context) => {
+                return new Promise((resolve, reject) => {
+                    specificMovie((error, result) => {
+                        error ? reject(error) : resolve(result);
+                    }, args.id);
+                });
             }
         },
 
@@ -205,10 +226,15 @@ const queryType = new GraphQLObjectType({
         search: {
             type: movieType,
             args: {
-                id: {type: GraphQLInt}
+                metascore: {type: GraphQLInt},
+                limit: {type: GraphQLInt}
             },
-            resolve: function (source, args) {
-                return "Hello World";
+            resolve: (source, args, context) => {
+                return new Promise((resolve, reject) => {
+                    searchMovies((error, result) => {
+                        error ? reject(error) : resolve(result);
+                    }, args.metascore, args.limit);
+                });
             }
         },
 
@@ -216,12 +242,17 @@ const queryType = new GraphQLObjectType({
         review: {
             type: movieType,
             args: {
-                id: {type: GraphQLInt}
+                id: {type: GraphQLString},
+                date: {type: GraphQLString},
+                review: {type: GraphQLString}
             },
-            resolve: function (source, args) {
-                return "Hello World";
+            resolve: (source, args, context) => {
+                return new Promise((resolve, reject) => {
+                    reviewMovie((error, result) => {
+                        error ? reject(error) : resolve(result);
+                    }, args.id, args.date, args.review);
+                });
             }
-
         }
     }
 });
