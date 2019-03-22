@@ -1,8 +1,5 @@
 # DENZEL
 
-The GraphQL part of the assignment is in a separate branch because it is not fully tested,
-as I did not find much documentation about it.
-
 > The must-watch Denzel's movies
 
 ![denzel](https://m.media-amazon.com/images/M/MV5BMjE5NDU2Mzc3MV5BMl5BanBnXkFtZTcwNjAwNTE5OQ@@._V1_SY1000_SX750_AL_.jpg)
